@@ -8,10 +8,6 @@ from pyspark.context import SparkContext
 
 
 
-spark = SparkSession.builder \
-      .master("local[1]") \
-      .appName("Datenbanken mit Spark") \
-      .getOrCreate()
 
 daten= pd.read_csv('C:\\Users\\Jan\\Desktop\\group_membership.tsv', delimiter='\t')
 
@@ -513,3 +509,34 @@ collection.delete_one({'x': 2})
 collection.delete_many({'x': 2})
 
 #####################################################################################################################
+
+"""
+Spark Cheat Sheet
+"""
+
+spark = SparkSession.builder \
+      .master("local[1]") \
+      .appName("Datenbanken mit Spark") \
+      .getOrCreate()
+
+
+dataframe = spark.read.option("delimiter", "\t").option("header","true").csv('data.tsv')
+dataframe2 = spark.read.option("delimiter", "\t").option("header","true").csv('data_1.tsv')
+
+dataframe.show(10)
+dataframe2.show(10)
+
+
+dataframezusammen= dataframe.join(dataframe2, ["tconst"])
+dataframezusammen.show(10)
+
+
+dataframezusammen.select("tconst","originalTitle","averageRating","numVotes").where(dataframezusammen.averageRating >= 5.0).show(10)
+
+
+datatopandas = dataframezusammen.toPandas()
+
+datatodict = datatopandas.to_dict("records")
+
+datatopandas.to_json('data.json', orient='records', force_ascii=False, lines=True)
+
