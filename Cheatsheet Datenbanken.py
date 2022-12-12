@@ -540,3 +540,120 @@ datatodict = datatopandas.to_dict("records")
 
 datatopandas.to_json('data.json', orient='records', force_ascii=False, lines=True)
 
+# und wenn wir auf das Schema direkt zugreifen wollen, dann gibt es alternativ die dtypes
+print(frank.dtypes)
+print(f"Ist das Element == 'string': { frank.dtypes[0][1] == 'string'}") # Das string kann auch durch int, float, etc. ersetzt werden
+
+from pyspark.sql.functions import split
+lines = frank.select(split(frank.value, " ").alias("Zeile"))
+lines.show(10, truncate=100)
+
+lines = frank.select(split(frank.value, "[^a-zA-Z]").alias("Zeile"))
+lines.show(100, truncate=False)
+
+# Spalte selektieren geht auf viele Arten:
+lines.select(lines.Zeile).show()
+lines.select("Zeile").show()
+from pyspark.sql.functions import col
+lines.select(col("Zeile")).show()
+
+# Packt die einzelnen Wörter in eine Spalte
+from pyspark.sql.functions import explode, col
+words = lines.select(explode(col("Zeile")).alias("word"))
+words.show(15)
+
+# Alles in Kleinbuchstaben
+from pyspark.sql.functions import lower
+words_lower = words.select(lower(col("word")).alias("word_lower"))
+words_lower.show(truncate = False)
+
+# weg mit den kurzen Zeilen bitte
+from pyspark.sql.functions import regexp_extract
+# minimum laenge 2 Zeichen ausser dem Wort "a" und "I"
+words_clean = words_lower.select(regexp_extract(col("word_lower"), "[a-z]{2,}|a|i", 0).alias("echtesWort"))
+words_clean.show(truncate = False)
+
+# oder mein weg ohne a und i drinlassen
+from pyspark.sql.functions import length
+mind2zeichen = words.where(length(col("lower(Zeilen)"))>=2)
+mind2zeichen.show(10,truncate=False)
+
+# weg mit den leeren Zeilen bitte
+proper_words = words_clean.filter(col("echtesWort") != "")
+proper_words.show()
+
+#soll alles mit any* rauswerfen klappt aber glaub nicht so richtig
+proper_words_any = words_clean.filter(col("echtesWort") != "any*")
+proper_words_any.show()
+
+#entfernen von "is" oder einem anderen Wort
+words_nonull = words_clean.where(col("word") != "is")
+
+#nochmal alle kleinen wörter rauswerfen
+# geht auch mit regex
+#words_clean = words_lower.select(
+#    regexp_extract(col("word_lower"), "[a-z]{3+}", 0).alias("word")
+#)
+
+#checken wie viel spalten keine strings enthalten
+cnt = 0
+for x, y in datenA2.dtypes:
+    if y != 'string':
+        cnt += 1
+print(f'cnt = {cnt}')
+#oder kurz
+print(len([x for x, y in datenA2.dtypes if y != "string"]))
+#kann denk ich auch verwendet werden zum zählen wie viel strings etc es gibt
+
+#Die ganzen spezifizierten wörter entfernen
+exclDict = ["is", "not", "if", "the", "for", "of", "no", "at", "and"]
+words_no_dict = words_nonull.where(~col("word").isin(exclDict))
+words_no_dict.show()
+#mein weg
+words_isin = mind3zeichen.filter(col("lower(Zeilen)").isin(exclDict)==False)
+words_isin.show()
+
+# gruppieren
+groups = words_nonull.groupby(col("word"))
+print(groups)
+wordCounts = groups.count()
+wordCounts.printSchema()
+wordCounts.show()
+
+#die Anzahl der Worte per Anzahl Buchstaben (also: wie viele Worte mit 1, 2, 3, ... Buchstaben
+from pyspark.sql.functions import length
+# words_nonull.groupBy(col("word")).count().select("count").alias("len").groupBy(col("len")).count().show()
+words_nonull.select(length(col("word")).alias("length")).groupBy("length").count().orderBy(col("length").asc()).show()
+#2 alternativen für das oderby
+wordCount.orderBy("count", ascending = False).show()
+wordCount.orderBy(col("count").desc()).show()
+
+#dataframe in csv auf patte schreiben
+words_nonull.coalesce(1).write.csv("frankenCoalesce1.csv")
+
+#cleanup
+
+from pyspark.sql import SparkSession
+import pyspark.sql.functions as F
+
+
+spark = SparkSession.builder.appName(
+    "Counting word occurences from a book."
+).getOrCreate()
+
+spark.sparkContext.setLogLevel("WARN")
+
+# If you need to read multiple text files, replace `1342-0` by `*`.
+results = (
+    spark.read.text("frankenstein.txt")
+    .select(F.split(F.col("value"), " ").alias("line"))
+    .select(F.explode(F.col("line")).alias("word"))
+    .select(F.lower(F.col("word")).alias("word"))
+    .select(F.regexp_extract(F.col("word"), "[a-z']*", 0).alias("word"))
+    .where(F.col("word") != "")
+    .groupby(F.col("word"))
+    .count()
+)
+
+results.orderBy("count", ascending=False).show(10)
+results.coalesce(1).write.csv("./results_single_partition.csv")
