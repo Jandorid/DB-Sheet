@@ -5,7 +5,11 @@ import pandas as pd
 import re
 from pyspark.sql import SparkSession
 from pyspark.context import SparkContext
-
+from pyspark.sql.functions import split
+from pyspark.sql.functions import col
+from pyspark.sql.functions import lower
+from pyspark.sql.functions import regexp_extract
+from pyspark.sql.functions import length
 
 
 
@@ -20,7 +24,7 @@ for i, item in enumerate(datenalsdict):
     print (i)
 print(f"Time expired for experiment 1: {time.perf_counter() - t} sec")
 
-#########################################################################################
+######################################################################################### 1.1Redis Cheatsheet
 """"
 # Redis Cheatsheet
 # All the commands you need to know
@@ -159,12 +163,12 @@ KEYS pattern  # find all keys matching the given pattern
 
 
 """
-#connect to reddis
+#connect to reddis  1.2 Redis Python Client
 
 import redis
 
 r = redis.Redis(host='localhost', port=6379, db=0)
-
+red = redis.StrictRedis('localhost', 6379, charset="utf-8", decode_responses=True)
 #set a key
 
 r.set('foo', 'bar')
@@ -184,7 +188,7 @@ r.delete('foo')
 r.setex('foo', 30, 'bar')
 
 
-#####################################################################################################################
+##################################################################################################################### 2.1 MongoDB Cheat Sheet
 """
 # MongoDB Cheat Sheet
 
@@ -454,7 +458,7 @@ db.posts.find({ views: { $lte: 7 } })
 
 """
 
-#connect to mongodb
+#connect to mongodb 2.2 MongoDB Python client
 
 import pymongo
 
@@ -508,7 +512,97 @@ collection.delete_one({'x': 2})
 
 collection.delete_many({'x': 2})
 
-#####################################################################################################################
+############################################################################################################# 2.3 MongoDB Python pipelining
+#Pipelines
+import pprint
+
+pipeline=[
+    # die match-Klausel ist fuer Aufgabe 1b - nur Sprachkombis, die mit "English" anfangen und die Anzahl der Sprachkombis und diese sortiert nach Anzahl
+    {
+        '$match': {
+            'language': { '$regex': "^English" }
+        }
+    },
+    {
+        '$group': {
+            '_id': "$language",
+            'cnt': { '$sum': 1 },
+            # 'cntcnt': { '$count': {}}
+        }
+    },
+        {
+        '$sort': { "cnt": -1 }
+    }
+]
+
+pprint.pprint(list(collection.aggregate(pipeline)))
+
+#das gleiche nur mit einem befehl
+pipelineSBC=[
+    {
+        '$sortByCount': "$language"
+    }
+]
+
+#max und min pipeline
+pipelineMax=[
+    {
+        '$group': { 
+            '_id': 'Maximum',
+            'maxYear': { '$max': "$year" },
+            'minYear': { '$min': "$year" }
+        }
+    }
+]
+pprint.pprint(list(client.mflix.movies_initial.aggregate(pipelineMax)))
+
+#alle einträge von id und year ausgeben. Der rest wird nicht mit ausgegeben.
+pipelineFindAll=[
+    {
+        '$project': { '_id': 1, 'year': 1 }
+    }
+]
+allEntries=list(client.mflix.movies_initial.aggregate(pipelineFindAll))
+# printe zum Testen einen Entry aus
+print(allEntries[0])
+
+#update alle einträge, die länger als 4 stellig sind und wandle sie in int um.
+for e in allEntries:
+    if isinstance(e["year"], str):
+        updateStringID = { '_id': e["_id"] }
+        updateStringDate = { '$set': { 'year': int(e["year"][0:4])}}
+        pprint.pprint(f"Update {e['year']} -> {updateStringID}, {updateStringDate}")
+        client.mflix.movies_initial.update_one(updateStringID, updateStringDate)
+
+#bearbeitung mit ausgabe in andere collection
+zweitausenderShortsPipeline = [
+    { 
+        '$unwind': '$genre'
+    },
+    {   
+        '$match': { 
+            "year": { '$gt': 1999 },
+            "genre": "Short"
+        }
+    },
+    {
+        '$set': { '_id': '$title' }
+    },
+    {
+        '$project': { 
+            # warum brauche ich hier den titel nicht? (A: weil das jetzt die ID ist!)
+            'year': 1,
+        }
+    },
+    {
+        '$sort': { '_id': 1 }
+    },
+    {
+        '$out': { 'db': 'ShortMovies', 'coll': '2000er' }
+    }
+]
+print(f"Die Anzahl von Filmen ist { len(list(client.mflix.movies_initial.aggregate(zweitausenderShortsPipeline))) }")
+##################################################################################################################### 3.1 Spark
 
 """
 Spark Cheat Sheet
@@ -657,3 +751,76 @@ results = (
 
 results.orderBy("count", ascending=False).show(10)
 results.coalesce(1).write.csv("./results_single_partition.csv")
+
+
+############################################################################################################ 4.1 Key-Value Stores
+"""
+1.	Was ist denn nun ein key-value-store genau?
+a.	Values werden abgespeichert mit einem einzigartigen Wert, dem Key
+
+2.	Nenne 3 verschiedene Key-Value Datenbanksysteme
+a.	Redis, Riak, Amazon DynamoDB
+
+3.	Was ist der Unterschied zu einer Document-Database?
+a.	Bei einer Document-Database enthält die Value Dateien, welche mit code gelesen und bearbeitet werden können
+
+4.	Bezüglich des "C" in ACID - was ist der Hauptunterschied zu relationalen Datenbanken?
+a.	C = Consitent, eine NoSQL Datenbank muss nicht zu jedem Zeitpunkt consistent sein.
+Man kann bei einer einem key-value Datenbank alle daten einfach speichern. Bei einer Relationalen Datenbank kann man immer nur in einer spalte feste Datentype seichern.
+
+5.	welche Normalformen gibt es bei Key-Value-Datenbanken?
+a.	Da bei Key-Vale-Datenbanken nur sehr einfache Beziehungen dargestellten werden können ist es ist es schwer von einer Normalform zu sprechen.
+
+6.	Welche Datentypen sind akzeptabel als Key? Was ist der Hauptindex für Key-Value Datenbanken, welchen Datentyp hat er, und wie viele andere Indices kann eine KV-Datenbank haben?
+a.	Typ: Binary sequence -> jeder datentyp + empty key
+b.	 Balanced tree
+c.	Keine weil man über den key zugreifen soll
+
+7.	angenommen wir haben eine Studentendatenbank (Key-Value), wo der Key die Matrikelnummer ist, und der Value die wichtigen Daten wie Name und Lieblingsbier. Mit welcher Suchmöglichkeit kann man alle Studis finden, die gerne Guinness trinken?
+a.	Linear-search O(n -> n)
+
+8.	warum bietet sich bei einem Online-Warenkorb (mit großen Umsatzzahlen natürlich, wie z.B. Amazon) eher eine key-Value Datenbank an um den Inhalt des Warenkorbs zu speichern, anstatt einer relationalen Datenbank? "weil es schneller ist" reicht nicht als Antwort. Sei ganz spezifisch!
+a.	Eine Key-Value Datenbank kommt mit sehr viel mehr Transaktionen klar als eine rationale Datenbank, alle Warenkörbe eines Onlineshops ändern deren inhalt zu oft, als das eine rationale Datenbank hinterher kommt denn dort werden mindestens 3 tabellen benötigt. Also mindestens 2 joins. Diese sind „teuer“.
+
+9.	Ist Windows Explorer eine key-value-Datenbank?
+a.	Der Windows-Explorer würde eher einer Document-Database entsprechen. Ist aber eigentlich ehr ein Browser.
+
+10.	Einer der Artikel behauptet: "key-value stores are not considered suitable for applications requiring frequent updates". Ist das nicht genau das Gegenteil von der Aussage in Aufgabe 8 (Warenkörbe, Session-Daten, usw..). Diskutiere, was hier abgeht/wer Recht hat/was das eigentliche Problem ist!
+a.	Eine Key-Value Datenbank kann keine “Updates” an den Daten Vornehmen. Man kann die Daten nur Schreiben, Lesen und Löschen. Will man also ein “Update” vornehmen muss man es Lesen bearbeiten speichern und dann das alte löschen.
+
+11.	Nenne 5 verschiedene Anwendungen wo Key-Value-Datenbanken Vorteile gegenüber Relationalen Datenbanken haben, und beschreibe spezifisch für jeden Fall, was genau der Vorteil ist (und: was potentielle Nachteile sind)
+a.	Warenkorb: daten können für die benötigte zeit gespeichert und später einfach gelöscht werden
+b.	Session Daten: daten können für die benötigte zeit gespeichert und später einfach gelöscht werden
+c.	Caching: Es muss eine stuktur für die daten angegeben werden (-> leichte und schnelle nutzung)
+d.	Quick & Dirty Lösungen: Es muss eine stuktur für die daten angegeben werden (-> leichte und schnelle nutzung)
+e.	
+
+12.	Be- oder widerlege die folgende Aussage (idealerweise an Hand eines Beispiels) "Dokumentendatenbanken sind das Gleiche wie Kev-Value Datenbanken"
+a.	Key-Value Datenbanken können einen beliebigen Value abspeichern, also mit beliebigem Value-Aufbau; Document-Databases sind spezialisiert auf Dokumente und besitzen dadurch mehr Struktur
+
+13.	Erkläre an Hand eines Beispiels was die Auswirkungen sind, wenn man im laufenden Betrieb die Feldstruktur einer KV-Datenbank verändert, und vergleiche es mit dem, was analog bei einer relationalen Datenbank passieren würde
+a.	Bei einer KV-Datenbank kann man so gut wie jede Art von Daten gemischt speichern. Bei einer relationalen Datenbank muss der Datentyp spezifiziert werden. Also ist ein einfacher Wechsel nicht möglich.
+
+
+14.	Mit welchem Kommando wird in Redis eine Datenbank erzeugt (analog zu "CREATE" in SQL)
+a.	Es gibt kein create in Redis. Jede Redis Datenbank Instanz ist eine DB. Evl. Kann man mit Hashing mehere “Tabellen” erstellen in dem man immer denselben Hash verwendet. Man kann auch zwischen 16 Datastores wechseln mit : “select *index*”
+
+15.	Wie viele verschiedene Datentypen kann Redis abspeichern?
+a.	Strings
+b.	Lists
+c.	Sets
+d.	Hashes
+e.	Sorted sets
+f.	Streams
+g.	Geospatial
+h.	HyperLogLog
+i.	Bitmaps
+j.	Bitfields
+
+16.	Redis ist eine in-________ Datenbank, und daher besonders schnell.
+a.	memory
+
+17.	Was für Fragen ergeben sich aus der vorhergehenden Frage?
+a.	Ist Redis schneller als eine Datenbank auf Festspeicher? Antwort Denke schon. RAM = Fast
+"""
+############################################################################################################
