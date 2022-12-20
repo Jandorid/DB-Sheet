@@ -169,6 +169,19 @@ import redis
 
 r = redis.Redis(host='localhost', port=6379, db=0)
 red = redis.StrictRedis('localhost', 6379, charset="utf-8", decode_responses=True)
+
+#subscribe to a channel
+def testfunc():
+    sub = red.pubsub()
+    sub.subscribe('test')
+    for message in sub.listen():
+        if message is not None and isinstance(message, dict):
+            text = message.get('data')
+            print(text)
+
+#sollte mit einem while gestartet werden sonst wird nur 1mal abgefragt            
+testfunc() 
+
 #set a key
 
 r.set('foo', 'bar')
